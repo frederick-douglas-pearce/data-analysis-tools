@@ -11,7 +11,7 @@ Component Analysis (PCA), and more...
 * Download a copy from github
 
 ```
-$ git clone https://github.com/fdphd15/fourier-transform-tools.git
+$ git clone https://github.com/fdphd15/data-analysis-tools.git
 ```
 
 * Requirements
