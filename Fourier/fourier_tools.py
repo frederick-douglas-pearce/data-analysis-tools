@@ -143,7 +143,7 @@ def isarray_complex(xa):
     """
     return any([isinstance(xv, complex) for xv in xa])
 
-def calc_fft_spec(x, outkeys=['freq', 'amp'], rescale=True, \
+def calc_fft(x, outkeys=['freq', 'amp'], rescale=True, \
         axis=-1, step=1, zeropad=2
 ):
     """Computes the Fast-Fourier transform of the input numpy array, x, along
@@ -164,39 +164,53 @@ def calc_fft_spec(x, outkeys=['freq', 'amp'], rescale=True, \
     corresponding 1D numpy array with ns*zeropad rows.
     Valid strings for outkeys are as follows:
     "freq" for frequency vector,
-    "comp" for full, complex-valued FFT output
+    "spec" for full, complex-valued FFT output
     "amp" for amplitude spectrum,
     "pha" for phase spectrum in radians
-    If 'comp' is in outkeys, then only complex is returned, while 'amp'
-    and 'pha' are ignored, if present.  Otherwise, "amp" and/or "pha"
+    If 'spec' is in outkeys, then only the full spectrum is returned, while
+    'amp' and 'pha' are ignored, if present.  Otherwise, "amp" and/or "pha"
     are returned, if present.
     Thus, the resulting output dictionary will have at most three keys:
-        ['freq' AND/OR ('comp' OR ('amp' AND/OR 'pha))']
+        ['freq' AND/OR ('spec' OR ('amp' AND/OR 'pha))']
     """
     # ToDo: Make an option to zero pad x up to the nearest power of 2, 
     # for speed!!!
-    ns = x.shape[axis]
-    nt = ns * int(zeropad)
-    spec = {'x_complex': isarray_complex(x)}
-    if spec['x_complex']:
+    spec['ns'] = x.shape[axis]
+    spec['nf'] = spec['ns'] * int(zeropad)
+    spec = {'iscomplex': isarray_complex(x)}
+    if spec['iscomplex']:
         if 'freq' in outkeys:
-            spec['freq'] = np.fft.fftfreq(nt, d=step)
-        fftout = np.fft.fft(x, n=nt, axis=axis)
+            spec['freq'] = np.fft.fftfreq(spec['nf'], d=step)
+        fftout = np.fft.fft(x, n=spec['nf'], axis=axis)
     else:
         if 'freq' in outkeys:
-            spec['freq'] = np.fft.rfftfreq(nt, d=step)
-        fftout = np.fft.rfft(x, n=nt, axis=axis)
+            spec['freq'] = np.fft.rfftfreq(spec['nf'], d=step)
+        fftout = np.fft.rfft(x, n=spec['nf'], axis=axis)
     if rescale:
-        fftout /= ns
+        fftout /= spec['ns']
         fftout[1:] *= 2
-    if 'comp' in outkeys:
-        spec['comp'] = fftout
+    if 'spec' in outkeys:
+        spec['spec'] = fftout
     else:
         if 'amp' in outkeys:
             spec['amp'] = np.abs(fftout)
         if 'pha' in outkeys:
             spec['pha'] = np.angle(fftout)
     return spec
+
+def calc_invfft(spec, ns, iscomplex, axis=-1):
+    """Computes the inverse Fast-Fourier transform of the input numpy array,
+    spec, along the dimension, axis, using either irfft or ifft, depending on
+    whether the original input array, x, contained all real values or not,
+    respectively.  In other words, if iscomplex=True, use ifft, otherwise use
+    irfft.
+    Returns an array, invfft, containing the output from irfft or ifft
+    """
+    if iscomplex:
+        ifftout = np.fft.ifft(x, n=ns, axis=axis)
+    else:
+        ifftout = np.fft.irfft(x, n=ns, axis=axis)
+    return ifftout
 
 def get_analysis_fourier(datinp, **parana):
     """Get fourier analysis data, including real discrete fourier transform
@@ -210,7 +224,7 @@ def get_analysis_fourier(datinp, **parana):
                 **parana['rdft']
         )
     if 'fft' in parana:
-        datana['fft'] = calc_fft_spec(datinp[ditype]['x'], \
+        datana['fft'] = calc_fft(datinp[ditype]['x'], \
                 **parana['fft']
         )
     return datana
@@ -249,12 +263,12 @@ def print_fft_tests(datana):
 
 def plot_spectrum(fft_dict, **parout):
     """Plot the Fourier spectrum obtained from applying the FFT to an input
-    numpy array, i.e. from the output of calc_fft_spec defined above.
+    numpy array, i.e. from the output of calc_fft defined above.
     """
     # Fix 'complex' key scenario to plot real or imaginary part, and change
     # label, etc.
     ax_labels = {'amp': 'Amplitude', 'freq': 'Frequency [Hz]', \
-            'pha': 'Phase [degrees]', 'comp': 'Complex Amplitude'}
+            'pha': 'Phase [degrees]', 'spec': 'Real Part of Spectrum'}
     fig = plt.figure()
     fig.suptitle('FFT Output: {} vs {}'.format( \
             parout['y_key'].capitalize(), parout['x_key'].capitalize()
