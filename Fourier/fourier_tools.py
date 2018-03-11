@@ -175,9 +175,9 @@ def calc_fft(x, outkeys=['freq', 'amp'], rescale=True, \
     """
     # ToDo: Make an option to zero pad x up to the nearest power of 2, 
     # for speed!!!
+    spec = {'iscomplex': isarray_complex(x)}
     spec['ns'] = x.shape[axis]
     spec['nf'] = spec['ns'] * int(zeropad)
-    spec = {'iscomplex': isarray_complex(x)}
     if spec['iscomplex']:
         if 'freq' in outkeys:
             spec['freq'] = np.fft.fftfreq(spec['nf'], d=step)
@@ -198,19 +198,19 @@ def calc_fft(x, outkeys=['freq', 'amp'], rescale=True, \
             spec['pha'] = np.angle(fftout)
     return spec
 
-def calc_invfft(spec, ns, iscomplex, axis=-1):
+def calc_ifft(spec, ns, iscomplex, axis=-1):
     """Computes the inverse Fast-Fourier transform of the input numpy array,
     spec, along the dimension, axis, using either irfft or ifft, depending on
     whether the original input array, x, contained all real values or not,
-    respectively.  In other words, if iscomplex=True, use ifft, otherwise use
-    irfft.
-    Returns an array, invfft, containing the output from irfft or ifft
+    respectively, i.e., if iscomplex=True, use ifft, otherwise use irfft.
+    The input parameter, ns, specifies the length of the ifft output, n, see
+    ifft or irfft documentation for details.
+    Returns an array, invfft, containing the output from irfft or ifft.
     """
     if iscomplex:
-        ifftout = np.fft.ifft(x, n=ns, axis=axis)
+        return np.fft.ifft(spec, n=ns, axis=axis)
     else:
-        ifftout = np.fft.irfft(x, n=ns, axis=axis)
-    return ifftout
+        return np.fft.irfft(spec, n=ns, axis=axis)
 
 def get_analysis_fourier(datinp, **parana):
     """Get fourier analysis data, including real discrete fourier transform
@@ -227,6 +227,11 @@ def get_analysis_fourier(datinp, **parana):
         datana['fft'] = calc_fft(datinp[ditype]['x'], \
                 **parana['fft']
         )
+        if 'ifft' in parana['fft']['outkeys'] and 'spec' in datana['fft']:
+            datana['fft']['ifft'] = calc_ifft(datana['fft']['spec'],
+                    datana['fft']['ns'], datana['fft']['iscomplex']
+            )
+    #print(datana)
     return datana
 
 def print_rdft_tests(datdft, **parmod):
@@ -261,7 +266,19 @@ def print_fft_tests(datana):
             180*data['analysis']['fft']['pha'][maxampind]/np.pi
     ))
 
-def plot_spectrum(fft_dict, **parout):
+def plot_data(fig, data, **parsub):
+    """Plot the data, both before and (optionally) after Fourier analysis."""
+    ax_labels = {'t': 'Indepedent', 'x': 'Dependent', 'ifft': 'Inverse FFT'}
+    ax = fig.add_subplot(parsub['axid'], xlabel=ax_labels[parsub['x_key']], \
+            ylabel=ax_labels[parsub['y_key']], title='Data'
+    )
+    print(data)
+    if parsub['y_key'] == 'x':
+        ax.plot(data['input']['model'][parsub['x_key']], \
+                data['input']['model'][parsub['y_key']], **parsub['params']
+        )
+
+def plot_spectrum(fig, fft_dict, **parsub):
     """Plot the Fourier spectrum obtained from applying the FFT to an input
     numpy array, i.e. from the output of calc_fft defined above.
     """
@@ -269,26 +286,40 @@ def plot_spectrum(fft_dict, **parout):
     # label, etc.
     ax_labels = {'amp': 'Amplitude', 'freq': 'Frequency [Hz]', \
             'pha': 'Phase [degrees]', 'spec': 'Real Part of Spectrum'}
-    fig = plt.figure()
-    fig.suptitle('FFT Output: {} vs {}'.format( \
-            parout['y_key'].capitalize(), parout['x_key'].capitalize()
-    ))
-    ax = fig.add_subplot(111, xlabel=ax_labels[parout['x_key']], \
-            ylabel=ax_labels[parout['y_key']]
+    ax = fig.add_subplot(parsub['axid'], xlabel=ax_labels[parsub['x_key']], \
+            ylabel=ax_labels[parsub['y_key']], title='Spectrum'
     )
-    ax.plot(fft_dict[parout['x_key']], fft_dict[parout['y_key']], \
-            **parout['params']
-    )
-    if 'save' in parout:
-        plt.savefig(parout['save']['name'])
+    if parsub['y_key'] == 'spec':
+        ax.plot(fft_dict[parsub['x_key']], np.real(fft_dict[parsub['y_key']]),\
+                **parsub['params']
+        )
+    else:
+        ax.plot(fft_dict[parsub['x_key']], fft_dict[parsub['y_key']], \
+                **parsub['params']
+        )
 
-def generate_output(datana, parmod, **parout):
+def make_figure(data, **parfig):
+    """Make figure"""
+    fig = plt.figure()
+    #fig.suptitle('FFT Output:  vs ')
+    # Identify keys of parfig that define subplots, then loop through the keys
+    # to build each subplot
+    spkey = [spk for spk in parfig if spk.startswith("subplot")]
+    for spk in spkey:
+        if parfig[spk]['type'] == 'data':
+            plot_data(fig, data, **parfig[spk])
+        elif parfig[spk]['type'] == 'spectrum':
+            plot_spectrum(fig, data['analysis']['fft'], **parfig[spk])
+    if 'save' in parfig:
+        plt.savefig(parfig['save']['name'])
+
+def generate_output(data, parmod, **parout):
     if parout['rdft_tests']:
-        print_rdft_tests(datana['rdft'], **parmod)
+        print_rdft_tests(data['analysis']['rdft'], **parmod)
     if parout['fft_tests']:
         print_fft_tests(data['analysis']['fft'])
-    if parout['figure']['type'] == 'spectrum':
-        plot_spectrum(datana['fft'], **parout['figure'])
+    if 'figure' in parout:
+        make_figure(data, **parout['figure'])
 
 ## III) If run from command line, execute script below here
 if __name__ == "__main__":
@@ -317,7 +348,8 @@ if __name__ == "__main__":
             'input': 'model', \
             'rdft': {'freq': [2.7, 16]}, \
             'fft': { \
-                'outkeys': ['freq', 'amp', 'pha'], \
+                #'outkeys': ['freq', 'amp', 'pha'], \
+                'outkeys': ['freq', 'spec', 'ifft'], \
                 'step': 0.01, \
                 'rescale': 1, \
                 'zeropad': 2
@@ -325,20 +357,36 @@ if __name__ == "__main__":
         }, \
         'output': { \
             'rdft_tests': 1, \
-            'fft_tests': 1, \
+            'fft_tests': 0, \
             'figure': { \
-                'type': 'spectrum', \
-                'x_key': 'freq', \
-                'y_key': 'amp', \
-                'params': { \
-                    'linestyle': '-',\
-                    'linewidth': 2,\
-                    'color': 'k', \
-                    'marker': '*',\
-                    'markersize': 8
+                'subplot1': { \
+                    'axid': 121, \
+                    'type': 'data', \
+                    'x_key': 't', \
+                    'y_key': 'x', \
+                    'params': { \
+                        'linestyle': '-',\
+                        'linewidth': 2,\
+                        'color': 'k', \
+                        'marker': '*',\
+                        'markersize': 8
+                    }
+                }, \
+                'subplot2': { \
+                    'axid': 122, \
+                    'type': 'spectrum', \
+                    'x_key': 'freq', \
+                    'y_key': 'spec', \
+                    'params': { \
+                        'linestyle': '-',\
+                        'linewidth': 2,\
+                        'color': 'k', \
+                        'marker': '*',\
+                        'markersize': 8
+                    }
                 }, \
                 'save': { \
-                    'name': 'test_fft.png'
+                    'name': 'test_x_fft_real.png'
                 }
             }
         }
@@ -353,6 +401,6 @@ if __name__ == "__main__":
     data['analysis'] = get_analysis_fourier(data['input'], **params['analysis'])
 
     # Output: print results, build/save figures, etc.
-    generate_output(data['analysis'], params['input']['model'],
+    generate_output(data, params['input']['model'],
             **params['output']
     )
