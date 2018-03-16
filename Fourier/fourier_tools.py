@@ -15,20 +15,22 @@
 # Copyright (C) 2017, Frederick D. Pearce, fourier_tools.py
 
 ## Import modules
-#
+from collections import defaultdict
 import numpy as np
 import matplotlib.pyplot as plt
 
 ## Define functions
 # Calculate Discrete Fourier Transform (DFT) of numpy array
 # i.e. arbitrary frequency(ies) and their corresponding amplitude(s)
-def print_orthonormal_test(basis):
-    """Print test of ortho-normality applied to input numpy array, basis"""
-    print("\nOrtho-normal Basis test:")
-    print("Inner product of matrix of basis vectors with itself = \n{}" \
+def print_orthonormal_test(f, basis):
+    """Print test of ortho-normality applied to input numpy array, basis, that
+    has a frequency, f.
+    """
+    print("\nOrtho-normal Basis test for f = {}".format(f))
+    print("Inner product of basis vector matrix with itself = \n{}" \
             .format((basis.T).dot(basis))
     )
-    print("If result is identity matrix, then basis vectors are ortho-normal"
+    print("Basis vectors are ortho-normal if result is identity matrix."
     )
 
 def calc_cos(t, f, a, p):
@@ -37,7 +39,7 @@ def calc_cos(t, f, a, p):
 
 def calc_periodic_model(t, freq, amp, pha, x0):
     """Calculate periodic model using input "time" array, t, to recursively add
-    together cosine functions built from each sequential value in the 
+    together cosine functions built from each sequential value in the
     frequency array, freq, amplitude array, amp, and phase array, pha, with
     the last set of array values including the addition of the x-intercept, a
     single float value, x0.
@@ -120,21 +122,25 @@ def calc_basis_periodic(freq, t, orthnorm_test=False):
     basis = np.vstack((np.cos(2*np.pi*freq*t), -np.sin(2*np.pi*freq*t))).T
     otb = calc_orthonormal_basis(basis)
     if orthnorm_test:
-        print_orthonormal_test(otb)
+        print_orthonormal_test(freq, otb)
     return otb
 
 def calc_rdft_ampphs(t, x, freq):
-    """Returns the amplitude and phase (in radians) of the real-valued
-    dependent variable, a numpy array, x, using a Discrete-Fourier Transform,
-    where freq is the discrete frequency value to analyze in cycles/ax_unit,
-    and t is the independent variable corresponding to x, a numpy array.
+    """Returns a dict with lists containing the amplitude and phase (radians)
+    of the real-valued dependent variable, a numpy array, x, using a
+    Discrete-Fourier Transform, where freq is a list of discrete frequency
+    values to analyze in cycles/t_unit and t, a numpy array, is the independent
+    variable corresponding to x.
     """
-    # Add ability to handle multiple frequencies
-    ampphs = {}
-    orthnormbas = calc_basis_periodic(freq[0], t, orthnorm_test=True)
-    onb_amps = x.dot(orthnormbas)
-    ampphs['amp'] = np.sqrt((2/t.shape[0])*sum(onb_amps**2))
-    ampphs['pha'] = np.arctan2(onb_amps[1], onb_amps[0])
+    # Vectorize implementation for multiple frequencies
+    ampphs = defaultdict(list)
+    for f in freq:
+        orthnormbas = calc_basis_periodic(f, t, orthnorm_test=True)
+        onb_amps = x.dot(orthnormbas)
+        ampphs['amp'].append(np.sqrt((2/t.shape[0])*sum(onb_amps**2)))
+        ampphs['pha'].append(np.arctan2(onb_amps[1], onb_amps[0]))
+    ampphs['amp'] = np.array(ampphs['amp'])
+    ampphs['pha'] = np.array(ampphs['pha'])
     return ampphs
 
 def isarray_complex(xa):
@@ -142,6 +148,10 @@ def isarray_complex(xa):
     otherwise returns false.
     """
     return any([isinstance(xv, complex) for xv in xa])
+
+def calc_array_amppha(arr):
+    """Return amplitude and phase of complex input array, arr."""
+    return (np.abs(arr), np.angle(arr))
 
 def calc_fft(x, outkeys=['freq', 'amp'], rescale=True, \
         axis=-1, step=1, zeropad=2
@@ -219,14 +229,11 @@ def get_analysis_fourier(datinp, **parana):
     ditype = parana['input']
     datana = {}
     if 'rdft' in parana:
-        datana['rdft'] = calc_rdft_ampphs(datinp[ditype]['t'], \
-                datinp[ditype]['x'], \
-                **parana['rdft']
+        datana['rdft'] = calc_rdft_ampphs( \
+                datinp[ditype]['t'], datinp[ditype]['x'], **parana['rdft']
         )
     if 'fft' in parana:
-        datana['fft'] = calc_fft(datinp[ditype]['x'], \
-                **parana['fft']
-        )
+        datana['fft'] = calc_fft(datinp[ditype]['x'], **parana['fft'])
         if 'ifft' in parana['fft']['outkeys'] and 'spec' in datana['fft']:
             datana['fft']['ifft'] = calc_ifft(datana['fft']['spec'],
                     datana['fft']['ns'], datana['fft']['iscomplex']
@@ -236,46 +243,55 @@ def get_analysis_fourier(datinp, **parana):
 
 def print_rdft_tests(datdft, **parmod):
     """Print tests to check the difference between the amplitude and phase
-    parameters used to build the model data, pm_amp and pm_pha, respectively,
-    and the amplitude and phase parameters calculated using the discrete
-    Fourier transform, datdft['amp'] and datdft['pha'], respectively.
+    parameters used to build the model data, 'amp' and 'pha' in
+    parmod['x']['periodic']['amp'], respectively, and the amplitude and phase
+    parameters calculated using the discrete Fourier transform, datdft['amp']
+    and datdft['pha'], respectively.
     All phase values should be converted to degrees!
     """
-    pm_amp = parmod['x']['periodic']['amp'][0]
-    pm_pha = parmod['x']['periodic']['pha'][0]
-    df_pha = 180 * datdft['pha'] / np.pi
-    print("\nDiscrete Fourier Transform test results:")
-    print("Model Input Amplitude - DFT Output Amplitude = {}".format( \
-            pm_amp-datdft['amp']
-    ))
-    print("Model Input Phase - DFT Output Phase = {}\n".format(pm_pha-df_pha))
+    for i, f in enumerate(parmod['x']['periodic']['freq']):
+        print("\nDiscrete Fourier Transform test results for f = {}".format(f))
+        print("Model Input Amplitude - DFT Output Amplitude = {}".format( \
+                parmod['x']['periodic']['amp'][i]-datdft['amp'][i]
+        ))
+        df_pha = 180 * datdft['pha'][i] / np.pi
+        print("Model Input Phase - DFT Output Phase = {}".format( \
+                parmod['x']['periodic']['pha'][i]-df_pha
+        ))
+    print("")
 
 def print_fft_tests(datana):
     """Print tests to check the output of the real Fast-Fourier Transform"""
-    maxampind = data['analysis']['fft']['amp'].argmax()
-    print("Amplitude at f=0 = {}".format( \
-            data['analysis']['fft']['amp'][0]
-    ))
-    print("Frequency at max. amplitude = {} cycles/t_units".format( \
+    if 'spec' in data['analysis']['fft']:
+        amp, pha = calc_array_amppha(data['analysis']['fft']['spec'])
+    else:
+        amp = data['analysis']['fft']['amp']
+        pha = 180 * data['analysis']['fft']['pha'] / np.pi
+    print(amp,pha)
+    maxampind = amp[1:].argmax()
+    # Improve this test, e.g. test multiple frequencies, compare with model
+    # values, etc.
+    print("Amplitude at f=0 = {}".format(amp[0]))
+    print("Frequency at max. amplitude = {} cycles/t_unit".format( \
             data['analysis']['fft']['freq'][maxampind]
     ))
-    print("Maximum amplitude = {}".format( \
-            data['analysis']['fft']['amp'][maxampind]
-    ))
-    print("Phase at max. amplitude = {} degrees".format( \
-            180*data['analysis']['fft']['pha'][maxampind]/np.pi
-    ))
+    print("Maximum amplitude = {}".format(amp[maxampind]))
+    print("Phase at max. amplitude = {} degrees\n".format(pha[maxampind]))
 
 def plot_data(fig, data, **parsub):
     """Plot the data, both before and (optionally) after Fourier analysis."""
-    ax_labels = {'t': 'Indepedent', 'x': 'Dependent', 'ifft': 'Inverse FFT'}
+    ax_labels = {'t': 'Indepedent (t)', 'x': 'Dependent (x)', 'ifft': 'Inverse FFT'}
     ax = fig.add_subplot(parsub['axid'], xlabel=ax_labels[parsub['x_key']], \
             ylabel=ax_labels[parsub['y_key']], title='Data'
     )
-    print(data)
     if parsub['y_key'] == 'x':
         ax.plot(data['input']['model'][parsub['x_key']], \
                 data['input']['model'][parsub['y_key']], **parsub['params']
+        )
+    if 'ifft' in data['analysis']['fft']:
+        parsub['params'].update({'color': 'r', 'linestyle': '--'})
+        ax.plot(data['input']['model'][parsub['x_key']], \
+                data['analysis']['fft']['ifft'], **parsub['params']
         )
 
 def plot_spectrum(fig, fft_dict, **parsub):
@@ -285,12 +301,19 @@ def plot_spectrum(fig, fft_dict, **parsub):
     # Fix 'complex' key scenario to plot real or imaginary part, and change
     # label, etc.
     ax_labels = {'amp': 'Amplitude', 'freq': 'Frequency [Hz]', \
-            'pha': 'Phase [degrees]', 'spec': 'Real Part of Spectrum'}
+            'pha': 'Phase [degrees]', 'spec': 'Real (b) + Imaginary (r)'}
     ax = fig.add_subplot(parsub['axid'], xlabel=ax_labels[parsub['x_key']], \
             ylabel=ax_labels[parsub['y_key']], title='Spectrum'
     )
+    # If y_key is 'spec', then line colors are overwritten in parsub['params']
+    # so that the real part of FFT output is blue and the imaginary part is red
     if parsub['y_key'] == 'spec':
+        parsub['params'].update({'color': 'b'})
         ax.plot(fft_dict[parsub['x_key']], np.real(fft_dict[parsub['y_key']]),\
+                **parsub['params']
+        )
+        parsub['params'].update({'color': 'r'})
+        ax.plot(fft_dict[parsub['x_key']], np.imag(fft_dict[parsub['y_key']]),\
                 **parsub['params']
         )
     else:
@@ -298,20 +321,32 @@ def plot_spectrum(fig, fft_dict, **parsub):
                 **parsub['params']
         )
 
-def make_figure(data, **parfig):
-    """Make figure"""
-    fig = plt.figure()
-    #fig.suptitle('FFT Output:  vs ')
-    # Identify keys of parfig that define subplots, then loop through the keys
-    # to build each subplot
+def make_figure_subplots(fig, data, **parfig):
+    """Make subplots by first, identifying keys in parfig that define subplots,
+    then looping through the keys to build each subplot
+    """
     spkey = [spk for spk in parfig if spk.startswith("subplot")]
     for spk in spkey:
         if parfig[spk]['type'] == 'data':
             plot_data(fig, data, **parfig[spk])
         elif parfig[spk]['type'] == 'spectrum':
             plot_spectrum(fig, data['analysis']['fft'], **parfig[spk])
+
+def save_or_show_figure(**parfig):
+    """If "save" is a key in parfig, then save the figure;
+    otherwise, show the figure."""
     if 'save' in parfig:
-        plt.savefig(parfig['save']['name'])
+        plt.savefig(parfig['save']['name'], **parfig['save']['params'])
+    else:
+        plt.show()
+
+def make_figure(data, **parfig):
+    """Make figure"""
+    fig = plt.figure(**parfig['params'])
+    #fig.suptitle('FFT Analysis')
+    make_figure_subplots(fig, data, **parfig)
+    fig.tight_layout()
+    save_or_show_figure(**parfig)
 
 def generate_output(data, parmod, **parout):
     if parout['rdft_tests']:
@@ -351,42 +386,48 @@ if __name__ == "__main__":
                 #'outkeys': ['freq', 'amp', 'pha'], \
                 'outkeys': ['freq', 'spec', 'ifft'], \
                 'step': 0.01, \
-                'rescale': 1, \
-                'zeropad': 2
+                'rescale': 0, \
+                'zeropad': 1
             }
         }, \
         'output': { \
             'rdft_tests': 1, \
-            'fft_tests': 0, \
+            'fft_tests': 1, \
             'figure': { \
+                'params': { \
+                    'figsize': (10, 6)
+                }, \
                 'subplot1': { \
-                    'axid': 121, \
+                    'axid': 211, \
                     'type': 'data', \
                     'x_key': 't', \
                     'y_key': 'x', \
                     'params': { \
                         'linestyle': '-',\
-                        'linewidth': 2,\
+                        'linewidth': 1,\
                         'color': 'k', \
                         'marker': '*',\
-                        'markersize': 8
+                        'markersize': 4
                     }
                 }, \
                 'subplot2': { \
-                    'axid': 122, \
+                    'axid': 212, \
                     'type': 'spectrum', \
                     'x_key': 'freq', \
                     'y_key': 'spec', \
                     'params': { \
                         'linestyle': '-',\
-                        'linewidth': 2,\
+                        'linewidth': 1,\
                         'color': 'k', \
                         'marker': '*',\
-                        'markersize': 8
+                        'markersize': 4
                     }
                 }, \
                 'save': { \
-                    'name': 'test_x_fft_real.png'
+                    'name': 'test_x_fft_real.png', \
+                    'params': { \
+                        'dpi': 300
+                    }
                 }
             }
         }
@@ -394,13 +435,11 @@ if __name__ == "__main__":
 
     # Input: build data dictionary, including independent, t, and dependendent,
     # x, variables for testing
-    data = get_input_data(**params['input'])
-
     # Analysis: calculate the Discrete Fourier Transform (DFT) and/or the
     # Fast-Fourier Transform (FFT) to dependent variable
-    data['analysis'] = get_analysis_fourier(data['input'], **params['analysis'])
-
     # Output: print results, build/save figures, etc.
+    data = get_input_data(**params['input'])
+    data['analysis'] = get_analysis_fourier(data['input'], **params['analysis'])
     generate_output(data, params['input']['model'],
             **params['output']
     )
