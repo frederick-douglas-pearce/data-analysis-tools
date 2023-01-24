@@ -260,7 +260,7 @@ def print_rdft_tests(datdft, **parmod):
         ))
     print("")
 
-def print_fft_tests(datana):
+def print_fft_tests(data):
     """Print tests to check the output of the real Fast-Fourier Transform"""
     if 'spec' in data['analysis']['fft']:
         amp, pha = calc_array_amppha(data['analysis']['fft']['spec'])
